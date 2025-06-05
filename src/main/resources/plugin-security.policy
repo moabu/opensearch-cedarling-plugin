@@ -1,0 +1,17 @@
+grant {
+    // Permissions for HTTP client communication with Cedarling service
+    permission java.net.SocketPermission "*:*", "connect,resolve";
+    
+    // File system permissions for plugin resources
+    permission java.io.FilePermission "<<ALL FILES>>", "read";
+    
+    // Thread permissions for async operations
+    permission java.lang.RuntimePermission "modifyThread";
+    
+    // Reflection permissions for JSON processing
+    permission java.lang.reflect.ReflectPermission "suppressAccessChecks";
+    
+    // Security manager permissions
+    permission java.security.SecurityPermission "putProviderProperty.BC";
+    permission java.security.SecurityPermission "insertProvider";
+};
