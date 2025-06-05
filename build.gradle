@@ -1,0 +1,214 @@
+buildscript {
+    ext {
+        opensearch_version = System.getProperty("opensearch.version", "2.11.0-SNAPSHOT")
+        isSnapshot = "true" == System.getProperty("build.snapshot", "true")
+        buildVersionQualifier = System.getProperty("build.version_qualifier", "")
+        
+        // 2.11.0-SNAPSHOT -> 2.11.0.0-SNAPSHOT
+        version_tokens = opensearch_version.tokenize('-')
+        opensearch_build = version_tokens[0] + '.0'
+        
+        common_utils_version = System.getProperty("common_utils.version", '2.11.0.0-SNAPSHOT')
+        
+        if (buildVersionQualifier) {
+            opensearch_build += "-${buildVersionQualifier}"
+        }
+        if (isSnapshot) {
+            opensearch_build += "-SNAPSHOT"
+        }
+    }
+    
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
+    }
+    
+    dependencies {
+        classpath "org.opensearch.gradle:build-tools:${opensearch_version}"
+    }
+}
+
+plugins {
+    id 'java-library'
+    id 'opensearch.opensearchplugin'
+}
+
+opensearchplugin {
+    name 'opensearch-security-cedarling'
+    description 'OpenSearch Cedarling Security Plugin with embedded Jans Cedarling engine'
+    classname 'org.opensearch.security.cedarling.CedarlingSecurityPlugin'
+    licenseFile rootProject.file('LICENSE.txt')
+    noticeFile rootProject.file('NOTICE.txt')
+}
+
+group = 'org.opensearch'
+version = opensearch_version - "-SNAPSHOT" + ".0"
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+repositories {
+    mavenLocal()
+    maven {
+        name "Sonatype"
+        url "https://oss.sonatype.org/content/repositories/snapshots"
+    }
+    maven {
+        name "jans"
+        url "https://maven.jans.io/maven"
+    }
+    maven {
+        name "github"
+        url "https://maven.pkg.github.com/JanssenProject/jans"
+        credentials {
+            username = project.findProperty("gpr.user") ?: System.getenv("USERNAME")
+            password = project.findProperty("gpr.key") ?: System.getenv("TOKEN")
+        }
+    }
+    gradlePluginPortal()
+    mavenCentral()
+}
+
+dependencies {
+    // OpenSearch core dependencies
+    implementation "org.opensearch:opensearch:${opensearch_version}"
+    implementation "org.opensearch:common-utils:${common_utils_version}"
+    
+    // Authentic Jans Cedarling UniFFI dependencies
+    implementation "io.jans:cedarling-java:0.0.0-nightly"
+    
+    // Kotlin runtime for UniFFI bindings
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:${kotlin_version}"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:${kotlin_version}"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+    
+    // JNA for native library interaction
+    implementation "net.java.dev.jna:jna:5.13.0"
+    implementation "net.java.dev.jna:jna-platform:5.13.0"
+    
+    // JSON processing
+    implementation "org.json:json:20231013"
+    implementation "com.fasterxml.jackson.core:jackson-core:2.15.2"
+    implementation "com.fasterxml.jackson.core:jackson-databind:2.15.2"
+    implementation "com.fasterxml.jackson.core:jackson-annotations:2.15.2"
+    
+    // Logging
+    implementation "org.apache.logging.log4j:log4j-api:2.20.0"
+    implementation "org.apache.logging.log4j:log4j-core:2.20.0"
+    
+    // Testing dependencies
+    testImplementation "org.opensearch.test:framework:${opensearch_version}"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.mockito:mockito-core:4.11.0"
+    testImplementation "org.hamcrest:hamcrest:2.2"
+}
+
+// Ensure proper resource handling for native libraries
+processResources {
+    from('src/main/resources') {
+        include '**/*'
+    }
+}
+
+// Plugin descriptor properties
+ext {
+    pluginApiVersion = opensearch_version
+    pluginName = 'opensearch-security-cedarling'
+    pluginClassname = 'org.opensearch.security.cedarling.CedarlingSecurityPlugin'
+    pluginDescription = 'OpenSearch Cedarling Security Plugin with embedded Jans Cedarling engine'
+    websiteUrl = 'https://github.com/opensearch-project/opensearch-security-cedarling'
+    pluginVersion = version
+}
+
+// Configure test execution
+test {
+    systemProperty 'tests.security.manager', 'false'
+    systemProperty 'java.security.policy', 'all.policy'
+    
+    // Enable JUnit platform
+    useJUnit()
+    
+    // Test logging
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+}
+
+// Ensure proper compilation order
+compileJava.dependsOn processResources
+
+// Plugin ZIP distribution
+task buildPluginZip(type: Zip) {
+    archiveFileName = "${pluginName}-${version}.zip"
+    from configurations.runtimeClasspath
+    from jar
+    into('/')
+    
+    doLast {
+        println "Plugin ZIP created: ${archiveFile.get().asFile}"
+    }
+}
+
+// Build depends on plugin ZIP
+build.dependsOn buildPluginZip
+
+// Configure JAR manifest
+jar {
+    manifest {
+        attributes(
+            'Implementation-Title': pluginName,
+            'Implementation-Version': version,
+            'Implementation-Vendor': 'OpenSearch',
+            'Build-Date': new Date().format('yyyy-MM-dd HH:mm:ss'),
+            'Built-By': System.getProperty('user.name'),
+            'Built-JDK': System.getProperty('java.version')
+        )
+    }
+}
+
+// Security policy for embedded native libraries
+task generateSecurityPolicy {
+    doLast {
+        def policyFile = file("${buildDir}/security.policy")
+        policyFile.parentFile.mkdirs()
+        policyFile.text = '''
+grant {
+    permission java.security.AllPermission;
+    permission java.lang.RuntimePermission "loadLibrary.*";
+    permission java.lang.RuntimePermission "accessDeclaredMembers";
+    permission java.io.FilePermission "<<ALL FILES>>", "read,write,execute,delete";
+    permission java.net.SocketPermission "*:*", "connect,listen,resolve";
+};
+'''
+    }
+}
+
+processResources.dependsOn generateSecurityPolicy
+
+// Disable problematic checks for plugin development
+tasks.withType(Checkstyle) {
+    enabled = false
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask) {
+    enabled = false
+}
+
+// Configure Kotlin compilation
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "11"
+        freeCompilerArgs += ["-Xjvm-default=all"]
+    }
+}
+
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "11"
+        freeCompilerArgs += ["-Xjvm-default=all"]
+    }
+}

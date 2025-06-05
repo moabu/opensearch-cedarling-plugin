@@ -1,0 +1,23 @@
+# OpenSearch Configuration for Cedarling Security Plugin
+
+cluster.name: opensearch-cedarling
+node.name: node-1
+
+# Network settings
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# Discovery settings for single node
+discovery.type: single-node
+
+# Security plugin configuration
+plugins.security.disabled: false
+plugins.security.ssl.transport.enabled: false
+plugins.security.ssl.http.enabled: false
+
+# Cedarling Security Plugin Configuration
+plugins.security.cedarling.enabled: true
+plugins.security.cedarling.policy_store.type: "opensearch"
+plugins.security.cedarling.audit.enabled: true
+plugins.security.cedarling.tbac.enabled: true
